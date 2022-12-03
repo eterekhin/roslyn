@@ -4,11 +4,14 @@
 
 #nullable disable
 
+using System.Collections.Immutable;
+using System.IO;
 using Microsoft.CodeAnalysis.CodeGen;
 using Microsoft.CodeAnalysis.CSharp.Test.Utilities;
 using Microsoft.CodeAnalysis.ExpressionEvaluator;
 using Microsoft.CodeAnalysis.ExpressionEvaluator.UnitTests;
 using Microsoft.CodeAnalysis.PooledObjects;
+using Microsoft.VisualStudio.Debugger.Evaluation;
 using Roslyn.Test.Utilities;
 using Xunit;
 
@@ -22,23 +25,40 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
             var source =
 @"class C
 {
-    void F(int x)
+    int field = 2;
+    object F(int x)
     {
         int y = x + 1;
         int G()
         {
             return 0;
         };
-        int z = G();
+        int z = G() + y;
+        var d = new System.Action(() => System.Console.WriteLine(z));
+        return d;
     }
 }";
             var compilation0 = CreateCompilation(source, options: TestOptions.DebugDll);
+            var result = compilation0.Emit(new MemoryStream());
             WithRuntimeInstance(compilation0, runtime =>
             {
-                var context = CreateMethodContext(runtime, "C.<F>g__G|0_0");
+                var context = CreateMethodContext(runtime, "C.F");
                 var testData = new CompilationTestData();
                 var locals = ArrayBuilder<LocalAndMethod>.GetInstance();
                 string typeName;
+
+                context.CompileExpression(@"public static class SomeClass { 
+                object F(int x)
+                {
+                    int y = x + field + 1;
+                    int G()
+                    {
+                        return 0;
+                    };
+                    int z = G() + y;
+                    var d = new System.Action(() => System.Console.WriteLine(z));
+                    return d;
+                } }", DkmEvaluationFlags.None, ImmutableArray<Alias>.Empty, new DiagnosticBag(), out var _, null);
                 var assembly = context.CompileGetLocals(locals, argumentsOnly: false, typeName: out typeName, testData: testData);
                 Assert.NotNull(assembly);
                 Assert.Equal(0, assembly.Count);

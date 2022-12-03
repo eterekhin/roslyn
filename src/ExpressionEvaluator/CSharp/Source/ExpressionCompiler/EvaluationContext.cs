@@ -269,7 +269,9 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             out ResultProperties resultProperties,
             CompilationTestData? testData)
         {
-            var syntax = Parse(expr, (compilationFlags & DkmEvaluationFlags.TreatAsExpression) != 0, diagnostics, out var formatSpecifiers);
+            // var syntax = Parse(expr, (compilationFlags & DkmEvaluationFlags.TreatAsExpression) != 0, diagnostics, out var formatSpecifiers);
+            var formatSpecifiers = default(ReadOnlyCollection<string>);
+            var syntax = (CSharpSyntaxNode)SyntaxFactory.ParseSyntaxTree(expr).GetRoot();
             if (syntax == null)
             {
                 resultProperties = default;
@@ -297,6 +299,8 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
                 emitTestCoverageData: false,
                 privateKeyOpt: null,
                 CancellationToken.None);
+
+            File.WriteAllBytes(@"C:\Users\EvgenyTerekhin\Documents\test.dll", stream.ToArray());
 
             if (diagnostics.HasAnyErrors())
             {

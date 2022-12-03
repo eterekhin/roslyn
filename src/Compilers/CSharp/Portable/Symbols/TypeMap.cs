@@ -188,6 +188,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             // Alternately, we were inside a field initializer, in which case we were to stop at the constructor,
             // but never made it that far because we encountered the field in the ContainingSymbol chain.
             Debug.Assert(
+                // TODO:
+                stopAt == null ||
                 stopAt == oldOwner ||
                 stopAt?.MethodKind == MethodKind.StaticConstructor ||
                 stopAt?.MethodKind == MethodKind.Constructor);

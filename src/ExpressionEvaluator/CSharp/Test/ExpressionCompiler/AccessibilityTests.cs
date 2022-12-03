@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.ExpressionEvaluator;
 using Microsoft.CodeAnalysis.Test.Utilities;
 using Microsoft.VisualStudio.Debugger.Evaluation.ClrCompilation;
 using System;
+using System.IO;
 using Xunit;
 using Roslyn.Test.Utilities;
 using Microsoft.CodeAnalysis.ExpressionEvaluator.UnitTests;
@@ -26,7 +27,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
         public void NotReferencable()
         {
             var source =
-@"class C
+                @"class C
 {
     object P { get { return null; } }
     void M()
@@ -49,12 +50,13 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
         public void ParametersAndReturnType_PrivateType()
         {
             var source =
-@"class A
+                @"class A
 {
     private struct S { }
 }
 class B
 {
+    static int field;
     static T F<T>(T t)
     {
         return t;
@@ -67,9 +69,9 @@ class B
                 source,
                 OutputKind.DynamicallyLinkedLibrary,
                 methodName: "B.M",
-                expr: "F(new A.S())");
+                expr: "{ var test = field; F(new A.S()); }");
             testData.GetMethodData("<>x.<>m0").VerifyIL(
-@"{
+                @"{
   // Code size       15 (0xf)
   .maxstack  1
   .locals init (A.S V_0)
@@ -82,10 +84,15 @@ class B
         }
 
         [Fact]
+        public void MethodGeneration()
+        {
+        }
+
+        [Fact]
         public void ParametersAndReturnType_DifferentCompilation()
         {
             var source =
-@"class C
+                @"class C
 {
     static T F<T>(T t)
     {
@@ -99,9 +106,9 @@ class B
                 source,
                 OutputKind.DynamicallyLinkedLibrary,
                 methodName: "C.M",
-                expr: "F(new { P = 1 })");
+                expr: "{F(new { P = 1 })}");
             testData.GetMethodData("<>x.<>m0").VerifyIL(
-@"{
+                @"{
   // Code size       12 (0xc)
   .maxstack  1
   IL_0000:  ldc.i4.1
@@ -121,7 +128,7 @@ class B
         public void ProtectedAndInternalVirtualCalls()
         {
             var source =
-@"internal class A
+                @"internal class A
 {
     protected virtual object M(object o) { return o; }
     internal virtual object P { get { return null; } }
@@ -133,8 +140,11 @@ internal class B : A
 internal class C : B
 {
     internal override object P { get { return null; } }
-    object M()
+   
+    object M(int a, int b)
     {
+        var c = a+b;
+        System.Console.Write(c);
         return this.M(this.P);
     }
 }";
@@ -143,16 +153,17 @@ internal class C : B
                 options: TestOptions.DebugDll,
                 assemblyName: Guid.NewGuid().ToString("D"));
 
+
             WithRuntimeInstance(compilation0, runtime =>
             {
                 var context = CreateMethodContext(runtime, "C.M");
 
                 string error;
                 var testData = new CompilationTestData();
-                context.CompileExpression("this.M(this.P)", out error, testData);
+                context.CompileExpression(" public static class SomeClass { object M(int a, int b) {  var c = a+b; System.Console.Write(c); return this.M(this.P); } }", out error, testData);
 
                 testData.GetMethodData("<>x.<>m0").VerifyIL(
-    @"
+                    @"
 {
   // Code size       13 (0xd)
   .maxstack  2
@@ -171,7 +182,7 @@ internal class C : B
         public void InferredTypeArguments_DifferentCompilation()
         {
             var source =
-@"class C
+                @"class C
 {
     static object F<T, U>(T t, U u)
     {
@@ -188,7 +199,7 @@ internal class C : B
                 methodName: "C.M",
                 expr: "F(new { A = 2 }, new { B = 3 })"); // new and existing types
             testData.GetMethodData("<>x.<>m0").VerifyIL(
-@"{
+                @"{
   // Code size       18 (0x12)
   .maxstack  2
   IL_0000:  ldc.i4.2

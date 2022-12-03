@@ -173,6 +173,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             ImmutableArray<Alias> aliases)
         {
             var objectType = Compilation.GetSpecialType(SpecialType.System_Object);
+            var syntax2 = (MemberDeclarationSyntax)(((ClassDeclarationSyntax)(((CompilationUnitSyntax)syntax).Members[0]))).Members[0];
             var synthesizedType = new EENamedTypeSymbol(
                 Compilation.SourceModule.GlobalNamespace,
                 objectType,
@@ -185,7 +186,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
                 {
                     var hasDisplayClassThis = GetThisProxy(_displayClassVariables) != null;
                     var binder = ExtendBinderChain(
-                        syntax,
+                        syntax2,
                         aliases,
                         method,
                         NamespaceBinder,
@@ -193,9 +194,13 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
                         _methodNotType,
                         out declaredLocals);
 
-                    return (syntax is StatementSyntax statementSyntax) ?
-                        BindStatement(binder, statementSyntax, diags, out properties) :
-                        BindExpression(binder, (ExpressionSyntax)syntax, diags, out properties);
+                    var bindingDiagnosticBag = new BindingDiagnosticBag();
+                    var result = (BoundMethodBodyBase)(binder.BindMethodBody(syntax2, bindingDiagnosticBag));
+                    properties = new ResultProperties();
+                    return result.BlockBody;
+                    // return (syntax is StatementSyntax statementSyntax) ?
+                        // BindStatement(binder, statementSyntax, diags, out properties) :
+                        // BindExpression(binder, (ExpressionSyntax)syntax, diags, out properties);
                 });
 
             return synthesizedType;
@@ -892,6 +897,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
 
             binder = new EEMethodBinder(method, substitutedSourceMethod, binder);
 
+            
             if (methodNotType)
             {
                 binder = new SimpleLocalScopeBinder(method.LocalsForBinding, binder);

@@ -100,12 +100,14 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             {
                 Debug.Assert(kind == MakeAssemblyReferencesKind.AllReferences);
                 var resolver = new EEMetadataReferenceResolver(IdentityComparer, referencesBySimpleName);
-                options = options.WithMetadataReferenceResolver(resolver);
+                options = options.WithMetadataReferenceResolver(resolver)
+                    .WithOptimizationLevel(OptimizationLevel.Debug);
             }
             return CSharpCompilation.Create(
                 assemblyName: ExpressionCompilerUtilities.GenerateUniqueName(),
                 references: references,
-                options: options);
+                options: options                    .WithOptimizationLevel(OptimizationLevel.Debug)
+                );
         }
 
         internal static ReadOnlyCollection<byte>? GetCustomTypeInfoPayload(
