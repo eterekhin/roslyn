@@ -104,9 +104,9 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
                 {
                 field = 13;
                 staticField = 14;
-                int aa = b;
-                int a = 1 + b + staticField + field + SomeMethod();
-                int c = 1 + b + staticField + field + SomeMethod() + NestedMethod();
+                int aa = 1;
+                int a = 1 + 1 + staticField + field + SomeMethod();
+                int c = 1 + 1 + staticField + field + SomeMethod() + NestedMethod();
                 int NestedMethod() => a + 1;
                 System.Action lambda = () => {
                     var a = 2;
@@ -121,11 +121,18 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
                     System.Console.WriteLine(""Some text"");
                 var result = p switch {
                     {Name : ""name1""} => a,
-                    {Age : 12} => b
+                    {Age : 12} => 1
                 };
-                return System.Threading.Tasks.Task.Delay(1000);
+                await System.Threading.Tasks.Task.Delay(1000);
                 }
             }";
+
+                var methodBody2 = @"{ System.Action action = () => {
+#line 999 
+    System.Console.WriteLine(b);
+};
+action();
+return System.Threading.Tasks.Task.CompletedTask; }";
             var source =
 $@"class A{{public struct S {{ }}}}
 class Person {{ public string Name{{get;set;}} public int Age {{get;set;}} }}
@@ -139,13 +146,14 @@ class B {{
     {{
         return t;
     }}
-    System.Threading.Tasks.Task M(int b){methodBody}
+   async System.Threading.Tasks.Task M(int b){methodBody}
 }}";
             var testData = Evaluate(
                 source,
                 OutputKind.DynamicallyLinkedLibrary,
-                // methodName: "B.<M>d__4.MoveNext()",
-                methodName: "B.M",
+                // methodName: "B.<>c__DisplayClass4_0.<M>b__0()",
+                methodName: "B.<M>d__4.MoveNext()",
+                // methodName: "B.M",
                 atLineNumber: 999,
                 expr: methodBody);
                 testData.GetMethodData("<>x.<>m0").VerifyIL(

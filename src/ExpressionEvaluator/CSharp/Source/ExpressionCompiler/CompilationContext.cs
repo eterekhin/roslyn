@@ -195,7 +195,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
                         out declaredLocals);
 
                     properties = new ResultProperties();
-                    var bindingDiagnosticBag = new BindingDiagnosticBag();
+                    var bindingDiagnosticBag = new BindingDiagnosticBag(diags);
                     var test = binder.BindEmbeddedBlock((BlockSyntax)syntax, bindingDiagnosticBag);
                     return test;
                     return (syntax is StatementSyntax statementSyntax)
@@ -885,16 +885,16 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
 
             // Method locals and parameters shadow pseudo-variables.
             // That is why we place PlaceholderLocalBinder and ExecutableCodeBinder before EEMethodBinder.
-            if (methodNotType)
-            {
-                var typeNameDecoder = new EETypeNameDecoder(binder.Compilation, (PEModuleSymbol)substitutedSourceMethod.ContainingModule);
-                binder = new PlaceholderLocalBinder(
-                    syntax,
-                    aliases,
-                    method,
-                    typeNameDecoder,
-                    binder);
-            }
+            // if (methodNotType)
+            // {
+            //     var typeNameDecoder = new EETypeNameDecoder(binder.Compilation, (PEModuleSymbol)substitutedSourceMethod.ContainingModule);
+            //     binder = new PlaceholderLocalBinder(
+            //         syntax,
+            //         aliases,
+            //         method,
+            //         typeNameDecoder,
+            //         binder);
+            // }
 
             binder = new EEMethodBinder(method, substitutedSourceMethod, binder);
 

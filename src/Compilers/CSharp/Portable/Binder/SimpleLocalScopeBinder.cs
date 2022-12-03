@@ -22,18 +22,18 @@ namespace Microsoft.CodeAnalysis.CSharp
             _locals = locals;
         }
 
-        // protected override ImmutableArray<LocalSymbol> BuildLocals()
-        // {
-        //     return _locals;
-        // }
-        // internal override ImmutableArray<LocalSymbol> GetDeclaredLocalsForScope(SyntaxNode scopeDesignator)
-        // {
-        //     throw ExceptionUtilities.Unreachable();
-        // }
-        //
-        // internal override ImmutableArray<LocalFunctionSymbol> GetDeclaredLocalFunctionsForScope(CSharpSyntaxNode scopeDesignator)
-        // {
-        //     throw ExceptionUtilities.Unreachable();
-        // }
+        protected override ImmutableArray<LocalSymbol> BuildLocals()
+        {
+            return _locals;
+        }
+        internal override ImmutableArray<LocalSymbol> GetDeclaredLocalsForScope(SyntaxNode scopeDesignator)
+        {
+            throw ExceptionUtilities.Unreachable();
+        }
+        
+        internal override ImmutableArray<LocalFunctionSymbol> GetDeclaredLocalFunctionsForScope(CSharpSyntaxNode scopeDesignator)
+        {
+            throw ExceptionUtilities.Unreachable();
+        }
     }
 }
