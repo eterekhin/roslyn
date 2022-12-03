@@ -137,6 +137,7 @@ namespace Roslyn.Test.Utilities
             ImmutableArray.Create<MetadataReference>(
                 Net461.mscorlib,
                 Net461.System,
+                // Net461.SystemThreadingTasks,
                 Net461.SystemCore,
                 NetFx.ValueTuple.tuplelib,
                 Net461.SystemRuntime);

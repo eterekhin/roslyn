@@ -1892,7 +1892,8 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             for (int i = 0; i < nStatements; i++)
             {
-                var boundStatement = BindStatement(syntaxStatements[i], diagnostics);
+                StatementSyntax syntaxStatement = syntaxStatements[i];
+                var boundStatement = BindStatement(syntaxStatement, diagnostics);
                 boundStatements.Add(boundStatement);
             }
 

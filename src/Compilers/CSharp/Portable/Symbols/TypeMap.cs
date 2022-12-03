@@ -187,10 +187,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             // If not provided, both should be null (if stopAt != null && oldOwner == null, then it wasn't in the chain).
             // Alternately, we were inside a field initializer, in which case we were to stop at the constructor,
             // but never made it that far because we encountered the field in the ContainingSymbol chain.
-            Debug.Assert(
-                stopAt == oldOwner ||
-                stopAt?.MethodKind == MethodKind.StaticConstructor ||
-                stopAt?.MethodKind == MethodKind.Constructor);
+            // TODO: don't work when ContainingSymbol is EECompilationContextMethod
+            // Debug.Assert(
+            //     stopAt == oldOwner ||
+            //     stopAt?.MethodKind == MethodKind.StaticConstructor ||
+            //     stopAt?.MethodKind == MethodKind.Constructor);
 
             oldTypeParameters = parameters.ToImmutableAndFree();
             return WithAlphaRename(oldTypeParameters, newOwner, out newTypeParameters);

@@ -194,6 +194,10 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
                         _methodNotType,
                         out declaredLocals);
 
+                    properties = new ResultProperties();
+                    var bindingDiagnosticBag = new BindingDiagnosticBag();
+                    var test = binder.BindEmbeddedBlock((BlockSyntax)syntax, bindingDiagnosticBag);
+                    return test;
                     return (syntax is StatementSyntax statementSyntax)
                         ? BindStatement(binder, statementSyntax, diags, out properties)
                         : BindExpression(binder, (ExpressionSyntax)syntax, diags, out properties);

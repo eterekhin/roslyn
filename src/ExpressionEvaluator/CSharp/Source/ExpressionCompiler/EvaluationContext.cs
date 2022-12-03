@@ -15,6 +15,7 @@ using System.Threading;
 using Microsoft.CodeAnalysis.CodeGen;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
 using Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.ExpressionEvaluator;
 using Microsoft.CodeAnalysis.PooledObjects;
@@ -269,7 +270,9 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             out ResultProperties resultProperties,
             CompilationTestData? testData)
         {
-            var syntax = Parse(expr, (compilationFlags & DkmEvaluationFlags.TreatAsExpression) != 0, diagnostics, out var formatSpecifiers);
+            var syntax = SyntaxFactory.ParseSyntaxTree(expr);
+            var blockSyntax = (BlockSyntax)((GlobalStatementSyntax)((CompilationUnitSyntax)SyntaxFactory.ParseSyntaxTree(expr).GetRoot()).Members[0]).Statement;
+            // Parse(expr, false, diagnostics, out var formatSpecifiers);
             if (syntax == null)
             {
                 resultProperties = default;
@@ -277,7 +280,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             }
 
             var context = CreateCompilationContext();
-            if (!context.TryCompileExpression(syntax, TypeName, MethodName, aliases, testData, diagnostics, out var moduleBuilder, out var synthesizedMethod))
+            if (!context.TryCompileExpression(blockSyntax, TypeName, MethodName, aliases, testData, diagnostics, out var moduleBuilder, out var synthesizedMethod))
             {
                 resultProperties = default;
                 return null;
@@ -298,6 +301,9 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
                 privateKeyOpt: null,
                 CancellationToken.None);
 
+            stream.Seek(0, SeekOrigin.Begin);
+            File.WriteAllBytes(@"C:\Users\win\Documents\assembly.dll", stream.ToArray());
+
             if (diagnostics.HasAnyErrors())
             {
                 resultProperties = default;
@@ -311,7 +317,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             return new CSharpCompileResult(
                 stream.ToArray(),
                 synthesizedMethod,
-                formatSpecifiers: formatSpecifiers);
+                formatSpecifiers: new ReadOnlyCollection<string>(new List<string>()));
         }
 
         private static CSharpSyntaxNode? Parse(

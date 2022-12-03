@@ -11,6 +11,8 @@ namespace Microsoft.CodeAnalysis.CSharp
     {
         internal static bool IsFeatureEnabled(this CSharpCompilation compilation, MessageID feature)
         {
+            // TODO: to enable shadowing for block building in synthetic method
+            return new CSharpParseOptions(LanguageVersion.Preview).IsFeatureEnabled(feature);
             return ((CSharpParseOptions?)compilation.SyntaxTrees.FirstOrDefault()?.Options)?.IsFeatureEnabled(feature) == true;
         }
 

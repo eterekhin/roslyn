@@ -45,30 +45,110 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
             Assert.Equal("error CS0571: 'C.P.get': cannot explicitly call operator or accessor", error);
         }
 
+        class A
+        {
+            public struct S
+            {
+            }
+        }
+
+        T F<T>(T t)
+        {
+            return t;
+        }
+
+        class Person
+        {
+            public string Name { get; set; }
+            public int Age { get; set; }
+        }
+
+        int SomeMethod() => 1;
+        static int staticField = 1;
+        int field = 2;
+
+        void M(int b)
+        {
+            {
+                {
+                    field = 13;
+                    staticField = 14;
+                    int a = 1 + b + staticField + field + SomeMethod();
+                    int c = 1 + b + staticField + field + SomeMethod() + NestedMethod();
+                    int NestedMethod() => a + 1;
+                    System.Action lambda = () =>
+                    {
+                        var a = 2;
+                        System.Console.WriteLine(a + field + staticField + c + NestedMethod());
+                    };
+                    lambda.Invoke();
+                    F(new A.S());
+                    F(new A.S());
+                    System.Console.WriteLine(a);
+                    var p = new Person() { Name = "name" };
+                    if (p is Person { Name: "name1" })
+                        System.Console.WriteLine("Some text");
+                    var result = p switch
+                    {
+                        { Name : "name1" } => a,
+                        { Age : 12 } => b
+                    };
+                }
+                }
+        }
         [Fact]
         public void ParametersAndReturnType_PrivateType()
         {
+            const string methodBody = @"{
+#line 999
+                {
+                field = 13;
+                staticField = 14;
+                int aa = b;
+                int a = 1 + b + staticField + field + SomeMethod();
+                int c = 1 + b + staticField + field + SomeMethod() + NestedMethod();
+                int NestedMethod() => a + 1;
+                System.Action lambda = () => {
+                    var a = 2;
+                    System.Console.WriteLine(a + field + staticField + c + NestedMethod());
+                };
+                lambda.Invoke(); 
+                F(new A.S());
+                F(new A.S());
+                System.Console.WriteLine(a);
+                var p = new Person(){ Name = ""name"", Age = 12};
+                if(p is Person {Name : ""name1"", Age : 12 })
+                    System.Console.WriteLine(""Some text"");
+                var result = p switch {
+                    {Name : ""name1""} => a,
+                    {Age : 12} => b
+                };
+                return System.Threading.Tasks.Task.Delay(1000);
+                }
+            }";
             var source =
-@"class A
-{
-    private struct S { }
-}
-class B
-{
-    static T F<T>(T t)
-    {
+$@"class A{{public struct S {{ }}}}
+class Person {{ public string Name{{get;set;}} public int Age {{get;set;}} }}
+class B {{
+    static int staticField = 1;
+    int field = 2;
+
+    int SomeMethod() => 1;
+
+    T F<T>(T t)
+    {{
         return t;
-    }
-    static void M()
-    {
-    }
-}";
+    }}
+    System.Threading.Tasks.Task M(int b){methodBody}
+}}";
             var testData = Evaluate(
                 source,
                 OutputKind.DynamicallyLinkedLibrary,
+                // methodName: "B.<M>d__4.MoveNext()",
                 methodName: "B.M",
-                expr: "F(new A.S())");
-            testData.GetMethodData("<>x.<>m0").VerifyIL(
+                atLineNumber: 999,
+                expr: methodBody);
+                testData.GetMethodData("<>x.<>m0").VerifyIL(
 @"{
   // Code size       15 (0xf)
   .maxstack  1
