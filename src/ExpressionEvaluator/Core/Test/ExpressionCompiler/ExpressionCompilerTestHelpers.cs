@@ -178,6 +178,7 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator.UnitTests
                 out missingAssemblyIdentities,
                 EnsureEnglishUICulture.PreferredOrNull,
                 testData);
+            File.WriteAllBytes(@"C:\Users\user\Documents\a.dll", result.Assembly);
             Assert.Empty(missingAssemblyIdentities);
             return result;
         }

@@ -1314,7 +1314,8 @@ namespace Microsoft.CodeAnalysis.CSharp
             return false;
         }
 
-        public string ToDisplayString(SymbolDisplayFormat format = null)
+        // TODO: revert
+        public virtual string ToDisplayString(SymbolDisplayFormat format = null)
         {
             return SymbolDisplay.ToDisplayString(ISymbol, format);
         }

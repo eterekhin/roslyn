@@ -83,10 +83,10 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             return ToCompilation(metadataBlocks, moduleVersionId, kind: MakeAssemblyReferencesKind.DirectReferencesOnly);
         }
 
-        internal static CSharpCompilation ToCompilation(this ImmutableArray<MetadataBlock> metadataBlocks, Guid moduleVersionId, MakeAssemblyReferencesKind kind)
+        internal static CSharpCompilation ToCompilation(this ImmutableArray<MetadataBlock> metadataBlocks, Guid moduleVersionId, MakeAssemblyReferencesKind kind, OptimizationLevel optimizationLevel = OptimizationLevel.Release)
         {
             var references = metadataBlocks.MakeAssemblyReferences(moduleVersionId, IdentityComparer, kind, out var referencesBySimpleName);
-            var options = s_compilationOptions;
+            var options = s_compilationOptions.WithOptimizationLevel(optimizationLevel);
             if (referencesBySimpleName != null)
             {
                 Debug.Assert(kind == MakeAssemblyReferencesKind.AllReferences);

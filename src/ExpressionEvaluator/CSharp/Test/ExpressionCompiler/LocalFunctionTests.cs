@@ -48,6 +48,33 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
         }
 
         [Fact]
+        public void NoLocals2()
+        {
+            var source =
+                @"class C
+{
+    void Do(System.Action action) => action();
+    void F(int x)
+    {
+        int l = 1;
+        int s = 2;
+    }
+}";
+            var compilation0 = CreateCompilation(source, options: TestOptions.DebugDll);
+            WithRuntimeInstance(compilation0, runtime =>
+            {
+                var context = CreateMethodContext(runtime, "C.F");
+                var testData = new CompilationTestData();
+                var locals = ArrayBuilder<LocalAndMethod>.GetInstance();
+                string typeName;
+                var assembly = context.CompileExpression("Do(() => { l++; s++; })", out var error,
+                    testData
+                    );
+                locals.Free();
+            });
+        }
+        
+        [Fact]
         public void Locals()
         {
             var source =

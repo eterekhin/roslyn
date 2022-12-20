@@ -16,14 +16,21 @@ using Roslyn.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Linq;
 using System.Threading;
 
 namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
 {
-    internal sealed class CompilationContext
+    internal interface IMethodCompilationContext
+    {
+        public bool TryCompileMethodBody(BlockSyntax methodBody, CompilationTestData? testData, DiagnosticBag diagnostics, out CSharpCompileResult result);
+    }
+    
+    internal sealed class CompilationContext : IMethodCompilationContext
     {
         internal readonly CSharpCompilation Compilation;
         internal readonly Binder NamespaceBinder; // Internal for test purposes.
@@ -167,6 +174,191 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             return true;
         }
 
+        private const string TypeName = "<>x";
+        private const string MethodName = "<>m0";
+
+        public bool TryCompileMethodBody(BlockSyntax methodBody, CompilationTestData? testData, DiagnosticBag diagnostics, out CSharpCompileResult result)
+        {
+            Binder ExtendBinderChain2(
+                CSharpSyntaxNode syntax,
+                // ImmutableArray<Alias> aliases,
+                EEMethodSymbol method,
+                Binder binder,
+                // bool hasDisplayClassThis,
+                // bool methodNotType,
+                out ImmutableArray<LocalSymbol> declaredLocals)
+            {
+                var substitutedSourceMethod = CompilationContext.GetSubstitutedSourceMethod(method.SubstitutedSourceMethod, false);
+                var substitutedSourceType = substitutedSourceMethod.ContainingType;
+
+                var stack = ArrayBuilder<NamedTypeSymbol>.GetInstance();
+                for (var type = substitutedSourceType; type is object; type = type.ContainingType)
+                {
+                    stack.Add(type);
+                }
+
+                while (stack.Count > 0)
+                {
+                    substitutedSourceType = stack.Pop();
+
+                    binder = new InContainerBinder(substitutedSourceType, binder);
+                    if (substitutedSourceType.Arity > 0)
+                    {
+                        binder = new WithTypeArgumentsBinder(substitutedSourceType.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics, binder);
+                    }
+                }
+
+                stack.Free();
+
+                if (substitutedSourceMethod.Arity > 0)
+                {
+                    binder = new WithTypeArgumentsBinder(substitutedSourceMethod.TypeArgumentsWithAnnotations, binder);
+                }
+
+                // // Method locals and parameters shadow pseudo-variables.
+                // // That is why we place PlaceholderLocalBinder and ExecutableCodeBinder before EEMethodBinder.
+                // if (methodNotType)
+                // {
+                //     var typeNameDecoder = new EETypeNameDecoder(binder.Compilation, (PEModuleSymbol)substitutedSourceMethod.ContainingModule);
+                //     binder = new PlaceholderLocalBinder(
+                //         syntax,
+                //         aliases,
+                //         method,
+                //         typeNameDecoder,
+                //         binder);
+                // }
+
+                binder = new EEMethodBinder(method, substitutedSourceMethod, binder, true);
+
+                // if (methodNotType)
+                // {
+                //     binder = new SimpleLocalScopeBinder(method.LocalsForBinding, binder);
+                // }
+
+                Binder? actualRootBinder = null;
+                SyntaxNode? declaredLocalsScopeDesignator = null;
+
+                var executableBinder = new ExecutableCodeBinder(syntax, substitutedSourceMethod, binder,
+                    (rootBinder, declaredLocalsScopeDesignatorOpt) =>
+                    {
+                        actualRootBinder = rootBinder;
+                        declaredLocalsScopeDesignator = declaredLocalsScopeDesignatorOpt;
+                    });
+
+                // We just need to trigger the process of building the binder map
+                // so that the lambda above was executed.
+                executableBinder.GetBinder(syntax);
+
+                RoslynDebug.AssertNotNull(actualRootBinder);
+
+                if (declaredLocalsScopeDesignator != null)
+                {
+                    declaredLocals = actualRootBinder.GetDeclaredLocalsForScope(declaredLocalsScopeDesignator);
+                }
+                else
+                {
+                    declaredLocals = ImmutableArray<LocalSymbol>.Empty;
+                }
+
+                return actualRootBinder;
+            }
+
+            var currentMethod = this._currentFrame;
+            var currentFrame = this._currentFrame;
+            
+            result = null;
+            var namespaceBinder = NamespaceBinder;
+            var objectType = Compilation.GetSpecialType(SpecialType.System_Object);
+
+            var synthesizedType = new EENamedTypeSymbol(
+                Compilation.SourceModule.GlobalNamespace,
+                objectType,
+                // methodBody,
+                currentMethod,
+                TypeName,
+                // MethodName,
+                (symbol, container) =>
+                {
+                    GenerateMethodBody generateMethodBody = delegate(EEMethodSymbol method, DiagnosticBag diagnostics, out ImmutableArray<LocalSymbol> locals, out ResultProperties properties)
+                    {
+                        locals = ImmutableArray<LocalSymbol>.Empty;
+                        properties = default;
+                        var binder = ExtendBinderChain2(
+                            methodBody,
+                            method,
+                            namespaceBinder,
+                            out var declaredLocals);
+
+                        var result = binder.BindEmbeddedBlock(methodBody, new BindingDiagnosticBag(diagnostics));
+                        if (result.HasErrors)
+                            throw new InvalidOperationException("Has errors");
+                        return result;
+                    };
+
+                    var method = new EEMethodSymbol(
+                        container,
+                        MethodName,
+                        methodBody.Location,
+                        currentMethod,
+                        ImmutableArray<LocalSymbol>.Empty,
+                        ImmutableArray<LocalSymbol>.Empty, 
+                        _displayClassVariables,
+                        generateMethodBody, true);
+
+                    return ImmutableArray.Create<MethodSymbol>(method);
+                }
+            );
+
+            var moduleBuilder = CompilationContext.CreateModuleBuilder(
+                Compilation,
+                additionalTypes: ImmutableArray.Create((NamedTypeSymbol)synthesizedType),
+                testData,
+                diagnostics);
+
+            Compilation.Compile(
+                moduleBuilder,
+                emittingPdb: false,
+                diagnostics,
+                filterOpt: null,
+                CancellationToken.None);
+
+            if (diagnostics.HasAnyErrors())
+            {
+                throw new Exception("Exception after compilation");
+            }
+
+            using var stream = new MemoryStream();
+            var synthesizedMethod = CompilationContext.GetSynthesizedMethod(synthesizedType);
+
+            Cci.PeWriter.WritePeToStream(
+                new EmitContext(moduleBuilder, null, diagnostics, metadataOnly: false, includePrivateMembers: true),
+                Compilation.MessageProvider,
+                () => stream,
+                getPortablePdbStreamOpt: null,
+                nativePdbWriterOpt: null,
+                pdbPathOpt: null,
+                metadataOnly: false,
+                isDeterministic: false,
+                emitTestCoverageData: false,
+                privateKeyOpt: null,
+                CancellationToken.None);
+
+            if (diagnostics.HasAnyErrors())
+            {
+                return false;
+            }
+
+            Debug.Assert(synthesizedMethod.ContainingType.MetadataName == TypeName);
+            Debug.Assert(synthesizedMethod.MetadataName == MethodName);
+
+            result = new CSharpCompileResult(
+                stream.ToArray(),
+                synthesizedMethod,
+                formatSpecifiers: new ReadOnlyCollection<string>(new List<string>()));
+            return true;
+        }
+
+
         private EENamedTypeSymbol CreateSynthesizedType(
             CSharpSyntaxNode syntax,
             string typeName,
@@ -261,7 +453,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             return true;
         }
 
-        private static EEMethodSymbol GetSynthesizedMethod(EENamedTypeSymbol synthesizedType)
+        public static EEMethodSymbol GetSynthesizedMethod(EENamedTypeSymbol synthesizedType)
             => (EEMethodSymbol)synthesizedType.Methods[0];
 
         private static string GetNextMethodName(ArrayBuilder<MethodSymbol> builder)
@@ -504,7 +696,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             return new CSharpLocalAndMethod(escapedName, displayName, method, flags);
         }
 
-        private static EEAssemblyBuilder CreateModuleBuilder(
+        internal static EEAssemblyBuilder CreateModuleBuilder(
             CSharpCompilation compilation,
             ImmutableArray<NamedTypeSymbol> additionalTypes,
             CompilationTestData? testData,
@@ -695,7 +887,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             return new BoundExpressionStatement(expression.Syntax, expression) { WasCompilerGenerated = true };
         }
 
-        private static Binder CreateBinderChain(
+        internal static Binder CreateBinderChain(
             CSharpCompilation compilation,
             NamespaceSymbol @namespace,
             ImmutableArray<ImmutableArray<ImportRecord>> importRecordGroups,

@@ -58,6 +58,8 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
         /// exactly once, otherwise it may be skipped.)
         /// </summary>
         private readonly GenerateMethodBody _generateMethodBody;
+
+        private readonly bool _isMethodBodyCompilation;
         private TypeWithAnnotations _lazyReturnType;
         private ResultProperties _lazyResultProperties;
 
@@ -72,7 +74,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             ImmutableArray<LocalSymbol> sourceLocals,
             ImmutableArray<LocalSymbol> sourceLocalsForBinding,
             ImmutableDictionary<string, DisplayClassVariable> sourceDisplayClassVariables,
-            GenerateMethodBody generateMethodBody)
+            GenerateMethodBody generateMethodBody, bool isMethodBodyCompilation = false)
         {
             Debug.Assert(sourceMethod.IsDefinition);
             Debug.Assert(TypeSymbol.Equals((TypeSymbol)sourceMethod.ContainingSymbol, container.SubstitutedSourceType.OriginalDefinition, TypeCompareKind.ConsiderEverything2));
@@ -81,6 +83,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             _container = container;
             _name = name;
             _locations = ImmutableArray.Create(location);
+            _isMethodBodyCompilation = isMethodBodyCompilation;
 
             // What we want is to map all original type parameters to the corresponding new type parameters
             // (since the old ones have the wrong owners).  Unfortunately, we have a circular dependency:
@@ -94,7 +97,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             var sourceMethodTypeParameters = sourceMethod.TypeParameters;
             var allSourceTypeParameters = container.SourceTypeParameters.Concat(sourceMethodTypeParameters);
 
-            sourceMethod = new EECompilationContextMethod(DeclaringCompilation, sourceMethod);
+            sourceMethod = new EECompilationContextMethod(DeclaringCompilation, sourceMethod, _isMethodBodyCompilation);
 
             sourceMethodTypeParameters = sourceMethod.TypeParameters;
             allSourceTypeParameters = allSourceTypeParameters.Concat(sourceMethodTypeParameters);
@@ -185,6 +188,8 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
 
             _generateMethodBody = generateMethodBody;
         }
+
+        internal override string GetDebuggerDisplay() => ContainingType.Name + "." + Name;
 
         private ParameterSymbol MakeParameterSymbol(int ordinal, string name, ParameterSymbol sourceParameter)
         {
@@ -294,7 +299,40 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
 
         public override bool IsAsync
         {
-            get { return false; }
+            get
+            {
+                if (_isMethodBodyCompilation)
+                {
+                    return SubstitutedSourceMethod.IsAsync;
+                }
+                return false;
+            }
+        }
+
+        internal override bool IsIterator
+        {
+            get
+            {
+                if (_isMethodBodyCompilation)
+                {
+                    return SubstitutedSourceMethod.IsIterator;
+                }
+
+                return false;
+            }
+        }
+
+        internal override TypeWithAnnotations IteratorElementTypeWithAnnotations
+        {
+            get
+            {
+                if (_isMethodBodyCompilation)
+                {
+                    return SubstitutedSourceMethod.IteratorElementTypeWithAnnotations;
+                }
+
+                return base.IteratorElementTypeWithAnnotations;
+            }
         }
 
         public override TypeWithAnnotations ReturnTypeWithAnnotations
@@ -370,7 +408,8 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
 
         internal override bool GenerateDebugInfo
         {
-            get { return false; }
+            // need debug IL code to have empty evaluation stack in the point the stay at
+            get { return _isMethodBodyCompilation; }
         }
 
         public override Symbol ContainingSymbol
@@ -449,7 +488,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             var body = _generateMethodBody(this, diagnostics.DiagnosticBag, out declaredLocalsArray, out _lazyResultProperties);
             var compilation = compilationState.Compilation;
 
-            _lazyReturnType = TypeWithAnnotations.Create(CalculateReturnType(compilation, body));
+            _lazyReturnType = _isMethodBodyCompilation ? SubstitutedSourceMethod.ReturnTypeWithAnnotations : TypeWithAnnotations.Create(CalculateReturnType(compilation, body));
 
             // Can't do this until the return type has been computed.
             TypeParameterChecker.Check(this, _allTypeParameters);
@@ -477,39 +516,42 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             try
             {
                 var declaredLocals = PooledHashSet<LocalSymbol>.GetInstance();
-                try
+                if (!_isMethodBodyCompilation)
                 {
-                    // Rewrite local declaration statement.
-                    body = (BoundStatement)LocalDeclarationRewriter.Rewrite(
-                        compilation,
-                        declaredLocals,
-                        body,
-                        declaredLocalsArray,
-                        diagnostics.DiagnosticBag);
-
-                    // Verify local declaration names.
-                    foreach (var local in declaredLocals)
+                    try
                     {
-                        Debug.Assert(local.Locations.Length > 0);
-                        var name = local.Name;
-                        if (name.StartsWith("$", StringComparison.Ordinal))
+                        // Rewrite local declaration statement.
+                        body = (BoundStatement)LocalDeclarationRewriter.Rewrite(
+                            compilation,
+                            declaredLocals,
+                            body,
+                            declaredLocalsArray,
+                            diagnostics.DiagnosticBag);
+
+                        // Verify local declaration names.
+                        foreach (var local in declaredLocals)
                         {
-                            diagnostics.Add(ErrorCode.ERR_UnexpectedCharacter, local.Locations[0], name[0]);
+                            Debug.Assert(local.Locations.Length > 0);
+                            var name = local.Name;
+                            if (name.StartsWith("$", StringComparison.Ordinal))
+                            {
+                                diagnostics.Add(ErrorCode.ERR_UnexpectedCharacter, local.Locations[0], name[0]);
+                                return;
+                            }
+                        }
+
+                        // Rewrite references to placeholder "locals".
+                        body = (BoundStatement)PlaceholderLocalRewriter.Rewrite(compilation, declaredLocals, body, diagnostics.DiagnosticBag);
+
+                        if (diagnostics.HasAnyErrors())
+                        {
                             return;
                         }
                     }
-
-                    // Rewrite references to placeholder "locals".
-                    body = (BoundStatement)PlaceholderLocalRewriter.Rewrite(compilation, declaredLocals, body, diagnostics.DiagnosticBag);
-
-                    if (diagnostics.HasAnyErrors())
+                    finally
                     {
-                        return;
+                        declaredLocals.Free();
                     }
-                }
-                finally
-                {
-                    declaredLocals.Free();
                 }
 
                 var syntax = body.Syntax;
@@ -539,8 +581,16 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
                         }
                     }
 
-                    body = new BoundBlock(syntax, localsBuilder.ToImmutableAndFree(), statementsBuilder.ToImmutableAndFree()) { WasCompilerGenerated = true };
-
+                    if (!_isMethodBodyCompilation)
+                    {
+                        body = new BoundBlock(syntax, localsBuilder.ToImmutableAndFree(), statementsBuilder.ToImmutableAndFree()) { WasCompilerGenerated = true };
+                    }
+                    else
+                    {
+                        // TODO: Probably we don't need this analysis, we need only add ReturnBoundStatement to the end of method if it's void
+                        var originalBodyNested = false; // TODO: what is that?
+                        body = FlowAnalysisPass.Rewrite(this, (BoundBlock)body, compilationState, diagnostics, hasTrailingExpression: false, originalBodyNested: originalBodyNested);
+                    }
                     Debug.Assert(!diagnostics.HasAnyErrors());
                     Debug.Assert(!body.HasErrors);
 
@@ -595,6 +645,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
                     // the locals <1> and z, and a corresponding local <2>: F(() => <2>.<1>.x + <2>.z)
                     // And a preamble is added to initialize the fields of <2>:
                     //     <2> = new <>c__DisplayClass0();
+                    // TODO: in methodBodyCompiler we don't need it, it can interfere
                     //     <2>.<1> = <1>;
                     //     <2>.z = z;
 

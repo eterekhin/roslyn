@@ -15,6 +15,7 @@ using System.Threading;
 using Microsoft.CodeAnalysis.CodeGen;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
 using Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.ExpressionEvaluator;
 using Microsoft.CodeAnalysis.PooledObjects;
@@ -24,7 +25,12 @@ using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
 {
-    internal sealed class EvaluationContext : EvaluationContextBase
+    public interface IMethodCompilerContext
+    {
+        internal CSharpCompileResult? CompileMethodBody(string methodBody);
+    }
+    
+    internal sealed class EvaluationContext : EvaluationContextBase, IMethodCompilerContext
     {
         private const string TypeName = "<>x";
         private const string MethodName = "<>m0";
@@ -516,6 +522,21 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             }
 
             return default;
+        }
+
+        public CSharpCompileResult? CompileMethodBody(string methodBody)
+        {
+            var blockSyntax = (BlockSyntax)((GlobalStatementSyntax)((CompilationUnitSyntax)SyntaxFactory.ParseSyntaxTree(methodBody).GetRoot()).Members[0]).Statement;
+
+            var context = CreateCompilationContext();
+            var td = new CompilationTestData();
+            var d = new DiagnosticBag();
+            if (!context.TryCompileMethodBody(blockSyntax, td, d,out var result))
+            {
+                return null;
+            }
+
+            return result;
         }
     }
 }
